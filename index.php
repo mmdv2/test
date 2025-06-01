@@ -35,8 +35,11 @@ remove_php() {
 
 # تابع نصب PHP 8.1
 install_php81() {
+    log "Adding PHP 8.1 repository..."
+    sudo apt install -y software-properties-common || { log "Error: Failed to install software-properties-common"; exit 1; }
+    sudo add-apt-repository ppa:ondrej/php -y || { log "Error: Failed to add PHP 8.1 repository"; exit 1; }
+    sudo apt update || { log "Error: Update failed after adding repository"; exit 1; }
     log "Installing PHP 8.1..."
-    sudo apt update || { log "Error: Update failed"; exit 1; }
     sudo apt install -y php8.1-fpm php8.1-cli || { log "Error: PHP 8.1 installation failed"; exit 1; }
     sudo systemctl start php8.1-fpm || { log "Error: Starting PHP 8.1-FPM failed"; exit 1; }
     sudo systemctl enable php8.1-fpm || { log "Error: Enabling PHP 8.1-FPM failed"; exit 1; }
