@@ -11,6 +11,7 @@ show_menu() {
     echo "2) SOCKS5 with Nginx"
     echo "3) Uninstall Everything"
     echo "4) Exit Script"
+    echo "5) Completely Remove PHP"
     echo "========================================"
 }
 
@@ -25,9 +26,29 @@ remove_php() {
     log "Checking and removing all PHP versions..."
     if dpkg -l | grep -q php; then
         log "Forcing removal of all PHP packages..."
+        # متوقف کردن سرویس‌های PHP-FPM
+        sudo systemctl stop php*-fpm 2>/dev/null
+        # غیرفعال کردن سرویس‌های PHP-FPM
+        sudo systemctl disable php*-fpm 2>/dev/null
+        # حذف اجباری بسته‌ها
+        for pkg in $(dpkg -l | grep php | awk '{print $2}'); do
+            sudo dpkg --purge --force-all $pkg 2>/dev/null || { log "Error: Failed to force purge $pkg"; exit 1; }
+        done
         sudo apt purge -y --auto-remove php* -f || { log "Error: Failed to purge PHP"; exit 1; }
-        sudo apt autoremove -y --purge || { log "Error: Failed to autoremove PHP"; exit 1; }
-        sudo rm -rf /etc/php/ /var/lib/php* 2>/dev/null
+        sudo apt autoremove -y --purge -f || { log "Error: Failed to autoremove PHP"; exit 1; }
+        # حذف دستی فایل‌های باقیمانده
+        sudo rm -rf /etc/php/ /var/lib/php* /usr/lib/php* /usr/bin/php* /usr/local/bin/php* 2>/dev/null
+        # حذف فایل‌های باقی‌مانده احتمالی
+        sudo find / -name '*php*' -exec rm -rf {} + 2>/dev/null
+        # چک کردن حذف
+        if dpkg -l | grep -q php; then
+            log "Error: PHP packages still present after removal attempt.";
+            exit 1;
+        fi
+        if command -v php >/dev/null 2>&1; then
+            log "Error: PHP binary still exists after removal attempt.";
+            exit 1;
+        fi
         log "All PHP versions and related files removed successfully."
     else
         log "No PHP versions found to remove."
@@ -344,7 +365,7 @@ uninstall_everything() {
 # حلقه اصلی منو
 while true; do
     show_menu
-    read -p "Enter your choice (1-4): " choice
+    read -p "Enter your choice (1-5): " choice
 
     case $choice in
         1)
@@ -363,6 +384,10 @@ while true; do
             log "Exiting script..."
             echo "Exiting script..."
             exit 0
+            ;;
+        5)
+            remove_php
+            read -p "PHP removal complete. Press Enter to continue..."
             ;;
         *)
             log "Invalid option, please try again..."
