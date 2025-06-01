@@ -34,6 +34,12 @@ install_nginx_prerequisites() {
     sudo apt update && sudo apt upgrade -y || { log "Error: Update failed"; exit 1; }
     log "Installing Nginx and PHP..."
     sudo apt install -y nginx php-fpm php-cli dante-server git unzip || { log "Error: Nginx/PHP installation failed"; exit 1; }
+    # استارت و فعال‌سازی خودکار Nginx
+    sudo systemctl start nginx || { log "Error: Starting Nginx failed"; exit 1; }
+    sudo systemctl enable nginx || { log "Error: Enabling Nginx failed"; exit 1; }
+    # ایجاد دایرکتوری‌ها در صورت عدم وجود
+    sudo mkdir -p /etc/nginx/sites-available
+    sudo mkdir -p /etc/nginx/sites-enabled
 }
 
 # تابع ایجاد فایل index.php
@@ -87,7 +93,7 @@ socks pass {
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <titleieranian >SOCKS5 Proxy Manager</title>
+    <title>SOCKS5 Proxy Manager</title>
     <link rel=\"stylesheet\" href=\"style.css\">
 </head>
 <body>
@@ -222,6 +228,10 @@ install_socks5_with_nginx() {
 
     # پیکربندی Nginx
     log "Configuring Nginx..."
+    # اطمینان از حذف فایل قدیمی
+    sudo rm -f /etc/nginx/sites-available/proxy
+    sudo rm -f /etc/nginx/sites-enabled/proxy
+    # ایجاد فایل پیکربندی
     sudo bash -c "cat > /etc/nginx/sites-available/proxy <<EOF
 server {
     listen $PORT;
@@ -244,7 +254,7 @@ server {
 EOF"
 
     # فعال‌سازی سایت Nginx
-    sudo ln -sf /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled/ || { log "Error: Linking Nginx config failed"; exit 1; }
+    sudo ln -sf /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled/proxy || { log "Error: Linking Nginx config failed"; exit 1; }
     sudo nginx -t || { log "Error: Nginx config test failed"; exit 1; }
     sudo systemctl restart nginx || { log "Error: Nginx restart failed"; exit 1; }
 
