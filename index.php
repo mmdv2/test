@@ -16,8 +16,31 @@ show_menu() {
 
 # تابع لاگ
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/socks5_setup.log
+    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $1" >> /var/log/socks5_setup.log
     echo "$1"
+}
+
+# تابع حذف PHP (اگر نصب باشه)
+remove_php() {
+    log "Checking for installed PHP versions..."
+    if dpkg -l | grep -q php; then
+        log "Removing existing PHP versions..."
+        sudo apt purge -y php* || { log "Error: Failed to purge PHP"; exit 1; }
+        sudo apt autoremove -y || { log "Error: Failed to autoremove PHP"; exit 1; }
+        log "PHP removed successfully."
+    else
+        log "No PHP versions found to remove."
+    fi
+}
+
+# تابع نصب PHP 8.1
+install_php81() {
+    log "Installing PHP 8.1..."
+    sudo apt update || { log "Error: Update failed"; exit 1; }
+    sudo apt install -y php8.1-fpm php8.1-cli || { log "Error: PHP 8.1 installation failed"; exit 1; }
+    sudo systemctl start php8.1-fpm || { log "Error: Starting PHP 8.1-FPM failed"; exit 1; }
+    sudo systemctl enable php8.1-fpm || { log "Error: Enabling PHP 8.1-FPM failed"; exit 1; }
+    log "PHP 8.1 installed and enabled successfully."
 }
 
 # تابع نصب پیش‌نیازهای پایه (فقط برای Dante)
@@ -32,8 +55,12 @@ install_basic_prerequisites() {
 install_nginx_prerequisites() {
     log "Updating system..."
     sudo apt update && sudo apt upgrade -y || { log "Error: Update failed"; exit 1; }
-    log "Installing Nginx and PHP..."
-    sudo apt install -y nginx php-fpm php-cli dante-server git unzip || { log "Error: Nginx/PHP installation failed"; exit 1; }
+    # حذف PHP قبل از نصب
+    remove_php
+    # نصب PHP 8.1
+    install_php81
+    log "Installing Nginx and other dependencies..."
+    sudo apt install -y nginx dante-server git unzip || { log "Error: Nginx installation failed"; exit 1; }
     # استارت و فعال‌سازی خودکار Nginx
     sudo systemctl start nginx || { log "Error: Starting Nginx failed"; exit 1; }
     sudo systemctl enable nginx || { log "Error: Enabling Nginx failed"; exit 1; }
@@ -53,6 +80,10 @@ create_index_php() {
     sudo mkdir -p /var/www/html/proxy
     sudo bash -c "cat > /var/www/html/proxy/index.php <<'EOF'
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 if (\$_SERVER['REQUEST_METHOD'] === 'POST') {
     \$port = \$_POST['port'];
     \$username = \$_POST['username'];
@@ -80,7 +111,9 @@ socks pass {
 \";
 
     // ذخیره فایل پیکربندی
-    file_put_contents('/etc/danted.conf', \$dante_conf);
+    if (!file_put_contents('/etc/danted.conf', \$dante_conf)) {
+        die('Error: Cannot write to /etc/danted.conf. Check permissions.');
+    }
 
     // به‌روزرسانی نام کاربری و رمز عبور
     shell_exec(\"sudo useradd -M -s /sbin/nologin \$username\");
@@ -255,7 +288,7 @@ server {
 
     location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock; # نسخه PHP ممکنه متفاوت باشه
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -289,7 +322,9 @@ uninstall_everything() {
     sudo rm -f /etc/nginx/sites-enabled/proxy.conf
     sudo systemctl stop nginx
     sudo systemctl disable nginx
-    sudo apt purge -y nginx php-fpm php-cli dante-server
+    # حذف PHP
+    remove_php
+    sudo apt purge -y nginx dante-server
     sudo apt autoremove -y
     sudo ufw delete allow 8066/tcp
     sudo ufw delete allow 1080/tcp
