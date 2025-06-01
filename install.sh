@@ -9,47 +9,260 @@ show_menu() {
     echo "Please select an option:"
     echo "1) Basic SOCKS5 Setup"
     echo "2) SOCKS5 with Nginx"
-    echo "3) SOCKS5 with Cloudflare"
+    echo "3) Uninstall Everything"
     echo "4) Exit Script"
     echo "========================================"
 }
 
+# تابع لاگ
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/socks5_setup.log
+    echo "$1"
+}
+
 # تابع نصب پیش‌نیازها
 install_prerequisites() {
-    echo "Updating system..."
-    sudo apt update && sudo apt upgrade -y
-    echo "Installing prerequisites..."
-    sudo apt install -y nginx php-fpm php-cli dante-server git unzip
+    log "Updating system..."
+    sudo apt update && sudo apt upgrade -y || { log "Error: Update failed"; exit 1; }
+    log "Installing prerequisites..."
+    sudo apt install -y nginx php-fpm php-cli dante-server git unzip || { log "Error: Prerequisite installation failed"; exit 1; }
+}
+
+# تابع ایجاد فایل index.php
+create_index_php() {
+    log "Creating index.php..."
+    sudo bash -c "cat > /var/www/html/proxy/index.php <<'EOF'
+<?php
+if (\$_SERVER['REQUEST_METHOD'] === 'POST') {
+    \$port = \$_POST['port'];
+    \$username = \$_POST['username'];
+    \$password = \$_POST['password'];
+    \$server_ip = \$_SERVER['SERVER_ADDR']; // IP سرور
+
+    // تولید فایل پیکربندی Dante
+    \$dante_conf = \"
+logoutput: /var/log/danted.log
+internal: 0.0.0.0 port = \$port
+external: \$server_ip
+socksmethod: username
+user.privileged: root
+user.unprivileged: nobody
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    socksmethod: username
+}
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    command: bind connect udpassociate
+    socksmethod: username
+}
+\";
+
+    // ذخیره فایل پیکربندی
+    file_put_contents('/etc/danted.conf', \$dante_conf);
+
+    // به‌روزرسانی نام کاربری و رمز عبور
+    shell_exec(\"sudo useradd -M -s /sbin/nologin \$username\");
+    shell_exec(\"echo '\$username:\$password' | sudo chpasswd\");
+
+    // ری‌استارت سرویس Dante
+    shell_exec(\"sudo systemctl restart danted\");
+
+    // نمایش اطلاعات اتصال
+    \$connection_info = \"SOCKS5 Proxy Details:\\nServer: \$server_ip\\nPort: \$port\\nUsername: \$username\\nPassword: \$password\";
+}
+?>
+
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>SOCKS5 Proxy Manager</title>
+    <link rel=\"stylesheet\" href=\"style.css\">
+</head>
+<body>
+    <div class=\"container\">
+        <h1>SOCKS5 Proxy Manager</h1>
+        <form method=\"POST\">
+            <div class=\"form-group\">
+                <label for=\"port\">Port</label>
+                <input type=\"number\" id=\"port\" name=\"port\" value=\"1080\" required>
+            </div>
+            <div class=\"form-group\">
+                <label for=\"username\">Username</label>
+                <input type=\"text\" id=\"username\" name=\"username\" value=\"proxyuser\" required>
+            </div>
+            <div class=\"form-group\">
+                <label for=\"password\">Password</label>
+                <input type=\"text\" id=\"password\" name=\"password\" value=\"proxypass\" required>
+            </div>
+            <button type=\"submit\" class=\"generate-btn\">Apply Settings</button>
+        </form>
+        <?php if (isset(\$connection_info)) { ?>
+            <div class=\"links\">
+                <h3>Connection Info</h3>
+                <pre><?php echo \$connection_info; ?></pre>
+            </div>
+        <?php } ?>
+    </div>
+</body>
+</html>
+EOF"
+}
+
+# تابع ایجاد فایل style.css
+create_style_css() {
+    log "Creating style.css..."
+    sudo bash -c "cat > /var/www/html/proxy/style.css <<'EOF'
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 600px;
+    margin: 50px auto;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    color: #555;
+}
+
+input[type=\"text\"], input[type=\"number\"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+button {
+    padding: 10px 20px;
+    background-color: #1da1f2;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #1991e2;
+}
+
+.generate-btn {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+}
+
+.links {
+    margin-top: 20px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+EOF"
 }
 
 # تابع نصب پایه SOCKS5
 install_basic_socks5() {
     install_prerequisites
-    echo "Setting up basic SOCKS5 with Dante..."
-    sudo systemctl enable danted
-    echo "Basic SOCKS5 setup complete!"
+    log "Setting up basic SOCKS5 with Dante..."
+    sudo systemctl enable danted || { log "Error: Enabling Dante failed"; exit 1; }
+    log "Basic SOCKS5 setup complete!"
 }
 
 # تابع نصب SOCKS5 با Nginx
 install_socks5_with_nginx() {
     install_prerequisites
-    echo "Setting up SOCKS5 with Nginx..."
+    log "Setting up SOCKS5 with Nginx..."
     sudo mkdir -p /var/www/html/proxy
-    sudo cp index.php style.css /var/www/html/proxy/
+    create_index_php
+    create_style_css
     sudo chown -R www-data:www-data /var/www/html/proxy
     sudo chmod -R 755 /var/www/html/proxy
-    echo "Nginx setup complete!"
+
+    # پرسیدن پورت از کاربر
+    read -p "Enter the port for the web interface (default: 8080): " PORT
+    PORT=${PORT:-8080}
+
+    # پیکربندی Nginx
+    log "Configuring Nginx..."
+    sudo bash -c "cat > /etc/nginx/sites-available/proxy <<EOF
+server {
+    listen $PORT;
+    server_name _;
+
+    root /var/www/html/proxy;
+    index index.php;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock; # نسخه PHP ممکنه متفاوت باشه
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF"
+
+    # فعال‌سازی سایت Nginx
+    sudo ln -sf /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled/ || { log "Error: Linking Nginx config failed"; exit 1; }
+    sudo nginx -t || { log "Error: Nginx config test failed"; exit 1; }
+    sudo systemctl restart nginx || { log "Error: Nginx restart failed"; exit 1; }
+
+    # باز کردن پورت در فایروال
+    sudo ufw allow $PORT/tcp || { log "Error: Opening port $PORT failed"; exit 1; }
+    sudo ufw allow 1080/tcp || { log "Error: Opening port 1080 failed"; exit 1; }
+    sudo ufw enable || { log "Error: Enabling firewall failed"; exit 1; }
+
+    log "Setup complete! Access at http://<your_server_ip>:$PORT"
+    echo "Setup complete! Access at http://<your_server_ip>:$PORT"
 }
 
-# تابع نصب SOCKS5 با Cloudflare
-install_socks5_with_cloudflare() {
-    install_socks5_with_nginx
-    echo "Configuring Cloudflare integration..."
-    read -p "Enter your domain (e.g., proxy.example.com): " DOMAIN
-    echo "Please add the following DNS record in Cloudflare:"
-    echo "Type: A, Name: proxy, IPv4: <your_server_ip>, Proxy Status: Proxied"
-    echo "After adding DNS, enable Full SSL in Cloudflare SSL/TLS settings."
-    echo "Cloudflare setup instructions provided. Manual configuration required."
+# تابع حذف نصب
+uninstall_everything() {
+    log "Uninstalling everything..."
+    sudo rm -rf /var/www/html/proxy
+    sudo rm -f /etc/nginx/sites-available/proxy
+    sudo rm -f /etc/nginx/sites-enabled/proxy
+    sudo systemctl stop nginx
+    sudo systemctl disable nginx
+    sudo apt purge -y nginx php-fpm php-cli dante-server
+    sudo apt autoremove -y
+    sudo ufw delete allow 8080/tcp
+    sudo ufw delete allow 1080/tcp
+    log "Uninstallation complete!"
+    echo "Uninstallation complete!"
 }
 
 # حلقه اصلی منو
@@ -64,48 +277,19 @@ while true; do
             ;;
         2)
             install_socks5_with_nginx
-            read -p "Enter the port for the web interface (default: 8080): " PORT
-            PORT=${PORT:-8080}
-            sudo bash -c "cat > /etc/nginx/sites-available/proxy <<EOF
-server {
-    listen $PORT;
-    server_name _;
-
-    root /var/www/html/proxy;
-    index index.php;
-
-    location / {
-        try_files \$uri \$uri/ /index.php?\$args;
-    }
-
-    location ~ \.php\$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-EOF"
-            sudo ln -sf /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled/
-            sudo nginx -t
-            sudo systemctl restart nginx
-            sudo ufw allow $PORT/tcp
-            echo "Setup complete! Access at http://<your_server_ip>:$PORT"
             read -p "Press Enter to continue..."
             ;;
         3)
-            install_socks5_with_cloudflare
-            read -p "Enter the port for the web interface (default: 8080): " PORT
-            PORT=${PORT:-8080}
-            sudo ufw allow $PORT/tcp
-            echo "Access at https://$DOMAIN:$PORT after Cloudflare setup."
+            uninstall_everything
             read -p "Press Enter to continue..."
             ;;
         4)
+            log "Exiting script..."
             echo "Exiting script..."
             exit 0
             ;;
         *)
+            log "Invalid option, please try again..."
             echo "Invalid option, please try again..."
             read -p "Press Enter to continue..."
             ;;
