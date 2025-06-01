@@ -20,12 +20,20 @@ log() {
     echo "$1"
 }
 
-# تابع نصب پیش‌نیازها
-install_prerequisites() {
+# تابع نصب پیش‌نیازهای پایه (فقط برای Dante)
+install_basic_prerequisites() {
     log "Updating system..."
     sudo apt update && sudo apt upgrade -y || { log "Error: Update failed"; exit 1; }
-    log "Installing prerequisites..."
-    sudo apt install -y nginx php-fpm php-cli dante-server git unzip || { log "Error: Prerequisite installation failed"; exit 1; }
+    log "Installing Dante..."
+    sudo apt install -y dante-server || { log "Error: Dante installation failed"; exit 1; }
+}
+
+# تابع نصب پیش‌نیازهای Nginx (برای گزینه 2)
+install_nginx_prerequisites() {
+    log "Updating system..."
+    sudo apt update && sudo apt upgrade -y || { log "Error: Update failed"; exit 1; }
+    log "Installing Nginx and PHP..."
+    sudo apt install -y nginx php-fpm php-cli dante-server git unzip || { log "Error: Nginx/PHP installation failed"; exit 1; }
 }
 
 # تابع ایجاد فایل index.php
@@ -79,7 +87,7 @@ socks pass {
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>SOCKS5 Proxy Manager</title>
+    <titleieranian >SOCKS5 Proxy Manager</title>
     <link rel=\"stylesheet\" href=\"style.css\">
 </head>
 <body>
@@ -192,7 +200,7 @@ EOF"
 
 # تابع نصب پایه SOCKS5
 install_basic_socks5() {
-    install_prerequisites
+    install_basic_prerequisites
     log "Setting up basic SOCKS5 with Dante..."
     sudo systemctl enable danted || { log "Error: Enabling Dante failed"; exit 1; }
     log "Basic SOCKS5 setup complete!"
@@ -200,7 +208,7 @@ install_basic_socks5() {
 
 # تابع نصب SOCKS5 با Nginx
 install_socks5_with_nginx() {
-    install_prerequisites
+    install_nginx_prerequisites
     log "Setting up SOCKS5 with Nginx..."
     sudo mkdir -p /var/www/html/proxy
     create_index_php
