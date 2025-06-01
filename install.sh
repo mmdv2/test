@@ -37,14 +37,20 @@ install_nginx_prerequisites() {
     # استارت و فعال‌سازی خودکار Nginx
     sudo systemctl start nginx || { log "Error: Starting Nginx failed"; exit 1; }
     sudo systemctl enable nginx || { log "Error: Enabling Nginx failed"; exit 1; }
-    # ایجاد دایرکتوری‌ها در صورت عدم وجود
+    # ایجاد دایرکتوری‌ها با اطمینان
     sudo mkdir -p /etc/nginx/sites-available
     sudo mkdir -p /etc/nginx/sites-enabled
+    # تنظیم دسترسی‌ها برای دایرکتوری‌ها
+    sudo chown -R root:root /etc/nginx/sites-available
+    sudo chown -R root:root /etc/nginx/sites-enabled
+    sudo chmod -R 755 /etc/nginx/sites-available
+    sudo chmod -R 755 /etc/nginx/sites-enabled
 }
 
 # تابع ایجاد فایل index.php
 create_index_php() {
     log "Creating index.php..."
+    sudo mkdir -p /var/www/html/proxy
     sudo bash -c "cat > /var/www/html/proxy/index.php <<'EOF'
 <?php
 if (\$_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -229,10 +235,10 @@ install_socks5_with_nginx() {
     # پیکربندی Nginx
     log "Configuring Nginx..."
     # اطمینان از حذف فایل قدیمی
-    sudo rm -f /etc/nginx/sites-available/proxy
-    sudo rm -f /etc/nginx/sites-enabled/proxy
-    # ایجاد فایل پیکربندی
-    sudo bash -c "cat > /etc/nginx/sites-available/proxy <<EOF
+    sudo rm -f /etc/nginx/sites-available/proxy.conf
+    sudo rm -f /etc/nginx/sites-enabled/proxy.conf
+    # ایجاد فایل پیکربندی با پسوند .conf
+    sudo bash -c "cat > /etc/nginx/sites-available/proxy.conf <<EOF
 server {
     listen $PORT;
     server_name _;
@@ -254,7 +260,7 @@ server {
 EOF"
 
     # فعال‌سازی سایت Nginx
-    sudo ln -sf /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled/proxy || { log "Error: Linking Nginx config failed"; exit 1; }
+    sudo ln -sf /etc/nginx/sites-available/proxy.conf /etc/nginx/sites-enabled/proxy.conf || { log "Error: Linking Nginx config failed"; exit 1; }
     sudo nginx -t || { log "Error: Nginx config test failed"; exit 1; }
     sudo systemctl restart nginx || { log "Error: Nginx restart failed"; exit 1; }
 
@@ -271,8 +277,8 @@ EOF"
 uninstall_everything() {
     log "Uninstalling everything..."
     sudo rm -rf /var/www/html/proxy
-    sudo rm -f /etc/nginx/sites-available/proxy
-    sudo rm -f /etc/nginx/sites-enabled/proxy
+    sudo rm -f /etc/nginx/sites-available/proxy.conf
+    sudo rm -f /etc/nginx/sites-enabled/proxy.conf
     sudo systemctl stop nginx
     sudo systemctl disable nginx
     sudo apt purge -y nginx php-fpm php-cli dante-server
