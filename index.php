@@ -20,14 +20,15 @@ log() {
     echo "$1"
 }
 
-# تابع حذف PHP (اگر نصب باشه)
+# تابع حذف کامل PHP
 remove_php() {
-    log "Checking for installed PHP versions..."
+    log "Checking and removing all PHP versions..."
     if dpkg -l | grep -q php; then
-        log "Removing existing PHP versions..."
-        sudo apt purge -y php* || { log "Error: Failed to purge PHP"; exit 1; }
-        sudo apt autoremove -y || { log "Error: Failed to autoremove PHP"; exit 1; }
-        log "PHP removed successfully."
+        log "Forcing removal of all PHP packages..."
+        sudo apt purge -y --auto-remove php* -f || { log "Error: Failed to purge PHP"; exit 1; }
+        sudo apt autoremove -y --purge || { log "Error: Failed to autoremove PHP"; exit 1; }
+        sudo rm -rf /etc/php/ /var/lib/php* 2>/dev/null
+        log "All PHP versions and related files removed successfully."
     else
         log "No PHP versions found to remove."
     fi
@@ -40,7 +41,12 @@ install_php81() {
     sudo add-apt-repository ppa:ondrej/php -y || { log "Error: Failed to add PHP 8.1 repository"; exit 1; }
     sudo apt update || { log "Error: Update failed after adding repository"; exit 1; }
     log "Installing PHP 8.1..."
-    sudo apt install -y php8.1-fpm php8.1-cli || { log "Error: PHP 8.1 installation failed"; exit 1; }
+    sudo apt install -y php8.1-fpm php8.1-cli php8.1-common -f || { log "Error: PHP 8.1 installation failed"; exit 1; }
+    # چک کردن نصب موفق
+    if ! dpkg -l | grep -q php8.1; then
+        log "Error: PHP 8.1 installation verification failed.";
+        exit 1;
+    fi
     sudo systemctl start php8.1-fpm || { log "Error: Starting PHP 8.1-FPM failed"; exit 1; }
     sudo systemctl enable php8.1-fpm || { log "Error: Enabling PHP 8.1-FPM failed"; exit 1; }
     log "PHP 8.1 installed and enabled successfully."
